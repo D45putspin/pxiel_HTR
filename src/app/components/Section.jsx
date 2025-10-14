@@ -24,6 +24,7 @@ export default function Section() {
     const canvasRef = useRef(null);
     const [pixels, setPixels] = useState(new Map());
     const [selected, setSelected] = useState('#ff0055');
+    const [isMounted, setIsMounted] = useState(false);
     const [loading, setLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
     const { loadingPixels, setLoadingPixels, generateLoadingPixels, drawLoadingAnimation } = usePixelLoadingAnimation();
@@ -751,6 +752,22 @@ export default function Section() {
             fetchAllowanceAndBalance(walletAddress);
         }
     }, [walletAddress, fetchAllowanceAndBalance]);
+
+    // Initialize color from localStorage after component mounts
+    useEffect(() => {
+        setIsMounted(true);
+        const savedColor = localStorage.getItem('pixel-color');
+        if (savedColor) {
+            setSelected(savedColor);
+        }
+    }, []);
+
+    // Save selected color to localStorage whenever it changes (only after mount)
+    useEffect(() => {
+        if (isMounted) {
+            localStorage.setItem('pixel-color', selected);
+        }
+    }, [selected, isMounted]);
 
     const handlePaint = useCallback(async (x, y) => {
         if (!(await ensureConnected())) {
