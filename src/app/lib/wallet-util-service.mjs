@@ -1,5 +1,5 @@
 
-import XianWalletUtils from './js/xian-dapp-utils.js';
+import HathorWalletUtils from './js/hathor-dapp-utils.js';
 
 export default class WalletUtilService {
   static instance;
@@ -8,7 +8,8 @@ export default class WalletUtilService {
     if (WalletUtilService.instance) {
       return WalletUtilService.instance;
     }
-    this.XianWalletUtils = XianWalletUtils;
+    this.HathorWalletUtils = HathorWalletUtils;
+    this.walletUtils = this.HathorWalletUtils;
     WalletUtilService.instance = this;
   }
 

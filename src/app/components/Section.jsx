@@ -5,7 +5,7 @@ import useStore from '@/app/lib/store';
 import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
 import { CONTRACT_NAME, DEFAULT_SIZE, PIXEL_PRICE_WEI } from '@/app/lib/addresses';
 import { usePixelLoadingAnimation } from './PixelLoadingAnimation';
-import { startXianPaintMonitor } from '@/app/lib/js/xian-ws-monitor';
+import { startHathorPaintMonitor } from '@/app/lib/js/hathor-ws-monitor';
 import ApproveModal from './ApproveModal.jsx';
 import { gql, useApolloClient } from '@apollo/client';
 
@@ -23,7 +23,7 @@ const STATE_BY_KEY = gql`
 export default function Section() {
     const canvasRef = useRef(null);
     const [pixels, setPixels] = useState(new Map());
-    const [selected, setSelected] = useState('#ff0055');
+    const [selected, setSelected] = useState('#ffffff');
     const [isMounted, setIsMounted] = useState(false);
     const [loading, setLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
@@ -39,8 +39,8 @@ export default function Section() {
     const [ctrlPressed, setCtrlPressed] = useState(false);
     const [mouseDownPos, setMouseDownPos] = useState(null);
     const [hasDragged, setHasDragged] = useState(false);
-    const [allowanceXian, setAllowanceXian] = useState(0);
-    const [balanceXian, setBalanceXian] = useState(0);
+    const [allowanceHtr, setAllowanceHtr] = useState(0);
+    const [balanceHtr, setBalanceHtr] = useState(0);
     const [showApproveModal, setShowApproveModal] = useState(false);
     const [pendingPaint, setPendingPaint] = useState(null);
 
@@ -61,7 +61,7 @@ export default function Section() {
         const height = canvas.height;
 
         // Clear canvas
-        ctx.fillStyle = '#0a0b0f';
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, width, height);
 
         // Soft vignette/glow to match pink/white palette
@@ -72,7 +72,7 @@ export default function Section() {
         ctx.fillRect(0, 0, width, height);
 
         const g2 = ctx.createRadialGradient(-200, height * 0.8, 0, -200, height * 0.8, Math.max(width, height));
-        g2.addColorStop(0, 'rgba(255, 0, 85, 0.10)');
+        g2.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
         g2.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = g2;
         ctx.fillRect(0, 0, width, height);
@@ -123,7 +123,7 @@ export default function Section() {
         ctx.strokeRect(borderX, borderY, borderSize, borderSize);
 
         // Inner faint pink accent border
-        ctx.strokeStyle = 'rgba(255, 0, 85, 0.12)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
         ctx.lineWidth = 1;
         ctx.strokeRect(borderX + 1, borderY + 1, borderSize - 2, borderSize - 2);
 
@@ -173,12 +173,12 @@ export default function Section() {
             const screenX = hoveredPixel.x * pixelSize + offset.x;
             const screenY = hoveredPixel.y * pixelSize + offset.y;
 
-            ctx.strokeStyle = '#FF0055';
+            ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.strokeRect(screenX - 1, screenY - 1, pixelSize + 1, pixelSize + 1);
 
             // Draw coordinates
-            ctx.fillStyle = '#ffd1e0';
+            ctx.fillStyle = '#f5f5f5';
             ctx.font = '12px "Press Start 2P", monospace';
             ctx.fillText(`(${hoveredPixel.x}, ${hoveredPixel.y})`, screenX + pixelSize + 5, screenY + pixelSize / 2);
         }
@@ -213,7 +213,7 @@ export default function Section() {
         } catch (e) {
             // Fallback to raw fetch without referencing queryGraphQL to avoid TDZ
             try {
-                const BDS_URL = process.env.NEXT_PUBLIC_XIAN_BDS || 'https://devnet.xian.org/graphql';
+                const BDS_URL = process.env.NEXT_PUBLIC_HATHOR_BDS || 'https://node1.testnet.hathor.network/v1a/graphql';
                 const res = await fetch(BDS_URL, {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
@@ -232,18 +232,18 @@ export default function Section() {
 
     // Warn if RPC and BDS networks differ (devnet vs testnet)
     useEffect(() => {
-        const rpc = (process.env.NEXT_PUBLIC_XIAN_RPC || '').toLowerCase();
-        const bds = (process.env.NEXT_PUBLIC_XIAN_BDS || '').toLowerCase();
+        const rpc = (process.env.NEXT_PUBLIC_HATHOR_RPC || '').toLowerCase();
+        const bds = (process.env.NEXT_PUBLIC_HATHOR_BDS || '').toLowerCase();
         const isDevnet = (u) => u.includes('devnet');
         const isTestnet = (u) => u.includes('testnet');
         if ((isDevnet(rpc) && isTestnet(bds)) || (isTestnet(rpc) && isDevnet(bds))) {
             setTxStatus('Network mismatch: wallet RPC and GraphQL are on different networks');
-            try { console.warn('Xian network mismatch detected', { rpc, bds }); } catch { }
+            try { console.warn('Hathor network mismatch detected', { rpc, bds }); } catch { }
         }
     }, []);
 
     const queryGraphQL = useCallback(async (key) => {
-        const BDS_URL = process.env.NEXT_PUBLIC_XIAN_BDS || 'https://devnet.xian.org/graphql';
+        const BDS_URL = process.env.NEXT_PUBLIC_HATHOR_BDS || 'https://node1.testnet.hathor.network/v1a/graphql';
         const query = `
             query State($key: String!) {
                 stateByKey(key: $key) {
@@ -268,7 +268,7 @@ export default function Section() {
     useEffect(() => {
         let stop = null;
         try {
-            stop = startXianPaintMonitor({
+            stop = startHathorPaintMonitor({
                 contractName: CONTRACT_NAME,
                 onPaint: async ({ x, y, color }) => {
                     // Optimistic update
@@ -470,7 +470,7 @@ export default function Section() {
                     let owner = walletAddress;
                     if (!owner) {
                         try {
-                            const w = WalletUtilService.getInstance().XianWalletUtils;
+                            const w = WalletUtilService.getInstance().HathorWalletUtils;
                             const info = await w.requestWalletInfo();
                             owner = info?.address || info?.wallet?.address || null;
                         } catch { }
@@ -480,7 +480,7 @@ export default function Section() {
                         if ((Number(allowance) || 0) < 1) {
                             setPendingPaint({ x: coords.x, y: coords.y });
                             setShowApproveModal(true);
-                            setTxStatus('Allowance needed. Approve XIAN to continue.');
+                            setTxStatus('Allowance needed. Approve HTR to continue.');
                             return;
                         }
                     }
@@ -587,8 +587,8 @@ export default function Section() {
             ]);
             const parsedAllowance = Number(allowanceVal || 0);
             const parsedBalance = Number(balanceVal || 0);
-            if (!Number.isNaN(parsedAllowance)) setAllowanceXian(parsedAllowance);
-            if (!Number.isNaN(parsedBalance)) setBalanceXian(parsedBalance);
+            if (!Number.isNaN(parsedAllowance)) setAllowanceHtr(parsedAllowance);
+            if (!Number.isNaN(parsedBalance)) setBalanceHtr(parsedBalance);
             return { allowance: Number.isNaN(parsedAllowance) ? 0 : parsedAllowance, balance: Number.isNaN(parsedBalance) ? 0 : parsedBalance };
         } catch (e) {
             // noop
@@ -602,7 +602,7 @@ export default function Section() {
         setLoadingPixels([]);
 
         try {
-            const BDS_URL = process.env.NEXT_PUBLIC_XIAN_BDS || 'https://devnet.xian.org/graphql';
+            const BDS_URL = process.env.NEXT_PUBLIC_HATHOR_BDS || 'https://node1.testnet.hathor.network/v1a/graphql';
             const prefix = `${CONTRACT_NAME}.pixels:`;
             const entries = [];
             let offset = 0;
@@ -737,15 +737,22 @@ export default function Section() {
     const ensureConnected = useCallback(async () => {
         if (isConnected) return true;
         try {
-            const w = WalletUtilService.getInstance().XianWalletUtils;
+            const w = WalletUtilService.getInstance().HathorWalletUtils;
+            const existing = w.getActiveAddress?.();
+            if (existing) {
+                setWalletAddress(existing);
+                return true;
+            }
             const info = await w.requestWalletInfo();
             const address = info?.address || info?.wallet?.address || null;
             setWalletAddress(address);
             return !!address;
-        } catch {
+        } catch (err) {
+            console.error('Wallet connection failed', err);
+            setTxStatus('Wallet connection failed. Check WalletConnect setup.');
             return false;
         }
-    }, [isConnected, setWalletAddress]);
+    }, [isConnected, setWalletAddress, setTxStatus]);
 
     useEffect(() => {
         if (!useValuePayment && walletAddress) {
@@ -775,7 +782,7 @@ export default function Section() {
             return;
         }
 
-        const w = WalletUtilService.getInstance().XianWalletUtils;
+        const w = WalletUtilService.getInstance().HathorWalletUtils;
         setTxStatus(`Painting pixel at (${x}, ${y})...`);
 
         try {
@@ -874,7 +881,7 @@ export default function Section() {
                     {!useValuePayment && (
                         <div className="control-group">
                             <label className="label">Approved allowance</label>
-                            <span className="pill">{Number(allowanceXian) || 0} XIAN</span>
+                            <span className="pill">{Number(allowanceHtr) || 0} HTR</span>
                             <button
                                 className="btn"
                                 style={{ marginLeft: 8 }}
@@ -900,7 +907,7 @@ export default function Section() {
             <div className="controls-hint-mini">
                 <p>
                     {ctrlPressed ? (
-                        <><span style={{ color: '#3b82f6' }}>◆ Pan/Zoom Mode</span> | Release <kbd>Ctrl/Cmd</kbd> to paint</>
+                        <><span style={{ color: 'var(--text-primary)' }}>◆ Pan/Zoom Mode</span> | Release <kbd>Ctrl/Cmd</kbd> to paint</>
                     ) : (
                         <><kbd>Ctrl/Cmd+Scroll</kbd> Zoom | <kbd>Ctrl/Cmd+Drag</kbd> Pan | <kbd>Click</kbd> Paint</>
                     )}
@@ -912,8 +919,8 @@ export default function Section() {
                 onClose={() => { setShowApproveModal(false); setPendingPaint(null); }}
                 onApprove={async (amt) => {
                     try {
-                        const w = WalletUtilService.getInstance().XianWalletUtils;
-                        setTxStatus(`Approving ${amt} XIAN...`);
+                        const w = WalletUtilService.getInstance().HathorWalletUtils;
+                        setTxStatus(`Approving ${amt} HTR...`);
                         const approveResult = await w.sendTransaction('currency', 'approve', {
                             to: CONTRACT_NAME,
                             amount: Number(amt)
@@ -934,7 +941,7 @@ export default function Section() {
                         setTxStatus(e?.message || 'Approval error.');
                     }
                 }}
-                currentAllowance={Number(allowanceXian) || 0}
+                currentAllowance={Number(allowanceHtr) || 0}
                 pricePerPaint={1}
             />
         </section>

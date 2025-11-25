@@ -15,7 +15,7 @@ const pixel = Press_Start_2P({
 
 export const metadata: Metadata = {
   title: "pXiel - Collaborative Pixel Canvas",
-  description: "Decentralized collaborative pixel art canvas built on the Xian blockchain",
+  description: "Decentralized collaborative pixel art canvas built on the Hathor network",
 };
 
 export default function RootLayout({

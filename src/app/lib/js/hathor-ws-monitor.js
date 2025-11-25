@@ -1,26 +1,20 @@
 'use client';
 
-// Lightweight CometBFT Tx subscription client for browsers
-// - Subscribes to tm.event='Tx'
-// - Decodes Xian tx payload (base64 -> hex string -> bytes -> JSON)
+// Lightweight Tx subscription client for Hathor-compatible websocket endpoints.
+// - Subscribes to tm.event='Tx' style feeds exposed by Hathor full nodes or bridges
+// - Decodes Hathor tx payload (base64 -> hex string -> bytes -> JSON)
 // - Calls onPaint for contract `paint` events
 
 function decodeTxB64ToJson(txB64) {
   try {
-    // Base64 decode -> ASCII hex string
     const hexStr = (typeof atob === 'function') ? atob(txB64) : Buffer.from(txB64, 'base64').toString('utf8');
-
-    // Hex string -> Uint8Array
     const bytes = new Uint8Array(Math.floor(hexStr.length / 2));
     for (let i = 0; i < bytes.length; i++) {
       bytes[i] = parseInt(hexStr.substr(i * 2, 2), 16);
     }
-
-    // Bytes -> JSON
     const jsonStr = new TextDecoder().decode(bytes);
     return JSON.parse(jsonStr);
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.warn('TX decode failed', e);
     return null;
   }
@@ -31,11 +25,9 @@ function extractTxData(messageObj) {
     const result = messageObj?.result;
     if (!result) return { txHash: null, txB64: null };
 
-    // tx hash may appear in events map
     const evmap = result.events || {};
     const txHash = Array.isArray(evmap['tx.hash']) && evmap['tx.hash'].length > 0 ? evmap['tx.hash'][0] : null;
 
-    // b64 bytes in nested structure
     const txB64 = result?.data?.value?.TxResult?.tx
       ?? result?.data?.value?.tx
       ?? null;
@@ -46,14 +38,19 @@ function extractTxData(messageObj) {
   }
 }
 
-export function startXianPaintMonitor({
-  wsUrl = (process.env.NEXT_PUBLIC_XIAN_WS_URL || 'wss://devnet.xian.org/websocket'),
+export function startHathorPaintMonitor({
+  wsUrl = (process.env.NEXT_PUBLIC_HATHOR_WS_URL || ''),
   contractName,
   onPaint,
   onContractTx,
   onStatus,
 }) {
   if (typeof window === 'undefined') return () => {};
+  if (!wsUrl) {
+    try { console.info('[hathor-ws] No websocket URL configured; realtime updates disabled.'); } catch (_) {}
+    try { onStatus && onStatus('Realtime updates disabled (no Hathor WS URL)'); } catch (_) {}
+    return () => {};
+  }
   let socket = null;
   let alive = true;
   let reconnectDelayMs = 1000;
@@ -61,7 +58,7 @@ export function startXianPaintMonitor({
 
   const notify = (msg) => {
     try { onStatus && onStatus(msg); } catch (_) {}
-    try { console.debug('[xian-ws]', msg); } catch (_) {}
+    try { console.debug('[hathor-ws]', msg); } catch (_) {}
   };
 
   const subscribeMsg = JSON.stringify({
@@ -84,7 +81,7 @@ export function startXianPaintMonitor({
     socket.onopen = () => {
       try { socket.send(subscribeMsg); } catch {}
       notify('Subscribed to Tx events');
-      reconnectDelayMs = 1000; // reset backoff
+      reconnectDelayMs = 1000;
     };
 
     socket.onmessage = (evt) => {
@@ -105,11 +102,9 @@ export function startXianPaintMonitor({
       const f = payload.function;
       const k = payload.kwargs || {};
 
-      // Notify any tx to the monitored contract
       if (c === contractName) {
         try { onContractTx && onContractTx(payload); } catch (_) {}
 
-        // Specific handling for paint -> pass coordinates
         if (f === 'paint') {
           const x = Number(k.x);
           const y = Number(k.y);
@@ -151,5 +146,3 @@ export function startXianPaintMonitor({
     try { socket && socket.close(); } catch {}
   };
 }
-
-

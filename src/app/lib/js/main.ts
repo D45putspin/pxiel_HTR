@@ -23,7 +23,7 @@ export const handleWalletInfo = (info) => {
 
 export const handleWalletError = (error) => {
     console.error('Wallet error:', error);
-    showToast("You don't have the Xian Wallet extension installed. Please install it to interact with the dapp.", "is-danger");
+    showToast("You don't have the Hathor Wallet extension installed. Please install it to interact with the dapp.", "is-danger");
     setWalletAddressElementValue('Wallet not installed');
 }
 

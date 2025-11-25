@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import useStore from '@/app/lib/store';
 import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
 
@@ -7,11 +7,27 @@ const Nav = () => {
     const walletAddress = useStore(state => state.walletAddress);
     const isConnected = useStore(state => state.isConnected);
     const setWalletAddress = useStore(state => state.setWalletAddress);
+    const hasProjectId = Boolean(process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [connectError, setConnectError] = useState(
+        hasProjectId ? '' : 'Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID in .env.local to enable WalletConnect.'
+    );
 
     useEffect(() => {
-        const utils = WalletUtilService.getInstance().XianWalletUtils;
-        if (utils?.init) utils.init(process.env.NEXT_PUBLIC_XIAN_RPC || 'https://testnet.xian.org');
-    }, []);
+        const utils = WalletUtilService.getInstance().HathorWalletUtils;
+        let mounted = true;
+        const bootstrap = async () => {
+            try {
+                await utils.init(process.env.NEXT_PUBLIC_HATHOR_RPC || 'https://wallet-service.hathor.network');
+                const existing = utils.getActiveAddress?.();
+                if (mounted && existing) setWalletAddress(existing);
+            } catch (e) {
+                console.error('WalletConnect init failed', e);
+            }
+        };
+        bootstrap();
+        return () => { mounted = false; };
+    }, [setWalletAddress]);
 
     const formatWalletAddress = (address) => {
         if (!address || address === 'Not connected') return 'Not connected';
@@ -19,10 +35,19 @@ const Nav = () => {
     };
 
     const connectWallet = async () => {
+        setIsConnecting(true);
+        setConnectError('');
+
+        if (!hasProjectId) {
+            setConnectError('Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID in .env.local to enable WalletConnect.');
+            setIsConnecting(false);
+            return;
+        }
+
         try {
             console.log('Attempting to connect wallet...');
             const walletService = WalletUtilService.getInstance();
-            const walletInfo = await walletService.XianWalletUtils.requestWalletInfo();
+            const walletInfo = await walletService.HathorWalletUtils.requestWalletInfo();
             console.log('Wallet info received:', walletInfo);
 
             const address = walletInfo?.address || walletInfo?.wallet?.address || null;
@@ -33,7 +58,19 @@ const Nav = () => {
         } catch (error) {
             console.error('Failed to connect wallet:', error);
             setWalletAddress(null);
+            setConnectError(error?.message || 'Wallet connection failed. Check WalletConnect setup.');
+        } finally {
+            setIsConnecting(false);
         }
+    };
+
+    const disconnectWallet = async () => {
+        try {
+            await WalletUtilService.getInstance().HathorWalletUtils.disconnect?.();
+        } catch (e) {
+            console.error('Failed to disconnect wallet:', e);
+        }
+        setWalletAddress(null);
     };
 
     return (
@@ -58,17 +95,33 @@ const Nav = () => {
                                     <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`}></div>
                                 </div>
                                 {isConnected ? (
-                                    <span className="wallet-address" id="wallet-address">
-                                        {formatWalletAddress(walletAddress)}
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span className="wallet-address" id="wallet-address">
+                                            {formatWalletAddress(walletAddress)}
+                                        </span>
+                                        <button
+                                            className="btn btn-secondary"
+                                            onClick={disconnectWallet}
+                                            style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
+                                        >
+                                            Disconnect
+                                        </button>
+                                    </div>
                                 ) : (
                                     <button
                                         className="btn btn-primary"
                                         onClick={connectWallet}
+                                        disabled={isConnecting || !hasProjectId}
                                         style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                                        title={!hasProjectId ? 'Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to enable WalletConnect' : undefined}
                                     >
-                                        Connect Wallet
+                                        {isConnecting ? 'Connecting...' : 'Connect Wallet'}
                                     </button>
+                                )}
+                                {connectError && !isConnected && (
+                                    <div style={{ color: '#f5b7b1', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                                        {connectError}
+                                    </div>
                                 )}
                             </div>
                         </div>

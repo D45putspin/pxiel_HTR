@@ -1,7 +1,7 @@
 {
   "name": "pXiel",
   "version": "1.0.0",
-  "description": "Collaborative pixel art canvas on Xian blockchain",
+  "description": "Collaborative pixel art canvas on Hathor blockchain",
   "private": true,
   "scripts": {
     "dev": "next dev -p 4545",
@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.9",
+    "@walletconnect/modal": "^2.6.2",
+    "@walletconnect/sign-client": "^2.16.1",
     "bulma": "^1.0.1",
     "bulma-toast": "^2.4.4",
     "graphql": "^16.11.0",

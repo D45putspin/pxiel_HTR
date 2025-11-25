@@ -99,7 +99,7 @@ export default function PixelLoadingAnimation({
         if (!isLoading || !canvasWidth || !canvasHeight) return;
 
         // Match wordmark palette: white + pink
-        const colors = ['#ffffff', '#f5f5f5', '#ffd1e0', '#ff6fa3', '#FF0055'];
+        const colors = ['#ffffff', '#e5e5e5', '#cfcfcf', '#a0a0a0', '#000000'];
         const gap = 12; // Larger gap for better visibility
         const speed = 0.05; // Slightly faster animation
         const pixels = [];
@@ -131,7 +131,7 @@ export default function PixelLoadingAnimation({
             canvasWidth * 0.7, -200, 0,
             canvasWidth * 0.7, -200, 1200
         );
-        gradient.addColorStop(0, 'rgba(11, 18, 32, 0.8)');
+        gradient.addColorStop(0, 'rgba(12, 12, 12, 0.8)');
         gradient.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
 
         const gradient2 = ctx.createRadialGradient(
@@ -141,7 +141,7 @@ export default function PixelLoadingAnimation({
         gradient2.addColorStop(0, 'rgba(18, 18, 18, 0.8)');
         gradient2.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
 
-        ctx.fillStyle = '#09090b';
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
         ctx.fillStyle = gradient;
@@ -185,8 +185,8 @@ export default function PixelLoadingAnimation({
         // p
         ctx.fillStyle = '#e3e3e3';
         ctx.fillText('p', startX, centerY);
-        // X (hot pink)
-        ctx.fillStyle = '#FF0055';
+        // X accent (white)
+        ctx.fillStyle = '#ffffff';
         ctx.fillText('X', Math.round(startX + widthP), centerY);
         // iel
         ctx.fillStyle = '#e3e3e3';
@@ -226,7 +226,7 @@ export function usePixelLoadingAnimation() {
         if (!canvasWidth || !canvasHeight) return [];
 
         // Match wordmark palette: white + pink
-        const colors = ['#ffffff', '#f5f5f5', '#ffd1e0', '#ff6fa3', '#FF0055'];
+        const colors = ['#ffffff', '#e5e5e5', '#cfcfcf', '#a0a0a0', '#000000'];
         const gap = 12; // Larger gap for better visibility
         const speed = 0.05; // Slightly faster animation
         const pixels = [];
@@ -267,7 +267,7 @@ export function usePixelLoadingAnimation() {
             canvasWidth * 0.7, -200, 0,
             canvasWidth * 0.7, -200, 1200
         );
-        gradient.addColorStop(0, 'rgba(11, 18, 32, 0.8)');
+        gradient.addColorStop(0, 'rgba(12, 12, 12, 0.8)');
         gradient.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
 
         const gradient2 = ctx.createRadialGradient(
@@ -277,7 +277,7 @@ export function usePixelLoadingAnimation() {
         gradient2.addColorStop(0, 'rgba(18, 18, 18, 0.8)');
         gradient2.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
 
-        ctx.fillStyle = '#09090b';
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
         ctx.fillStyle = gradient;
@@ -320,8 +320,8 @@ export function usePixelLoadingAnimation() {
         // p
         ctx.fillStyle = '#e3e3e3';
         ctx.fillText('p', startX, centerY);
-        // X (hot pink)
-        ctx.fillStyle = '#FF0055';
+        // X accent (white)
+        ctx.fillStyle = '#ffffff';
         ctx.fillText('X', Math.round(startX + widthP), centerY);
         // iel
         ctx.fillStyle = '#e3e3e3';

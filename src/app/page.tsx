@@ -63,14 +63,14 @@ export default function Home() {
             <h1 className="brand-title">
               p<span className="x-accent">X</span>iel
             </h1>
-            <p className="brand-sub">Collaborative pixel canvas on Xian</p>
+            <p className="brand-sub">Collaborative pixel canvas on Hathor</p>
           </div>
 
           <div className="cta-row">
             <Link href="/dapp" className="btn btn-enter pixel-frame">
               Enter dApp
             </Link>
-            <a href="https://xian.org" target="_blank" rel="noreferrer" className="btn btn-secondary">Learn Xian</a>
+            <a href="https://hathor.network" target="_blank" rel="noreferrer" className="btn btn-secondary">Learn Hathor</a>
           </div>
 
           <div className="hint-mini">Press <kbd>Enter</kbd> to enter the dApp</div>
@@ -92,7 +92,7 @@ export default function Home() {
             <div className="concept-item">
               <span className="concept-badge">2</span>
               <div className="concept-head">Own Your Art</div>
-              <div className="concept-body">Actions are signed by your wallet on Xian.</div>
+              <div className="concept-body">Actions are signed by your wallet on Hathor.</div>
             </div>
             <div className="concept-item">
               <span className="concept-badge">3</span>
@@ -106,4 +106,3 @@ export default function Home() {
     </main>
   );
 }
-
