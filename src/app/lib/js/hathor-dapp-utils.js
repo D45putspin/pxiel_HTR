@@ -91,12 +91,29 @@ const HathorWalletUtils = {
       // Validate permissions
       const namespaces = candidate.namespaces?.hathor || {};
       const methods = namespaces.methods || [];
+      const chains = namespaces.chains || [];
+
+      // Check for network mismatch
+      // We want to force the network defined in env
+      const targetChain = this.chainId;
+      const sessionChain = resolveChainFromSession(candidate, '');
+
       if (!methods.includes('htr_sendNanoContractTx')) {
         console.warn('Session missing required method htr_sendNanoContractTx. Disconnecting stale session.');
         try {
           await this.signClient.disconnect({
             topic: candidate.topic,
             reason: { code: 6000, message: 'Stale session, missing permissions' }
+          });
+        } catch (e) { /* ignore */ }
+        this.session = null;
+        this.cachedAddress = null;
+      } else if (sessionChain && sessionChain !== targetChain) {
+        console.warn(`Network mismatch: Session is on ${sessionChain}, but app is on ${targetChain}. Disconnecting.`);
+        try {
+          await this.signClient.disconnect({
+            topic: candidate.topic,
+            reason: { code: 6000, message: 'Network mismatch' }
           });
         } catch (e) { /* ignore */ }
         this.session = null;

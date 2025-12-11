@@ -1,20 +1,15 @@
 'use client'
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import useStore from '@/app/lib/store';
 import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
-import { CONTRACT_NAME, WALLET_ADDRESS, WALLET_ID } from '@/app/lib/addresses';
 
 const Nav = () => {
     const walletAddress = useStore(state => state.walletAddress);
-    const walletId = useStore(state => state.walletId);
     const setWalletAddress = useStore(state => state.setWalletAddress);
-    const setWalletId = useStore(state => state.setWalletId);
+    const [isConnecting, setIsConnecting] = useState(false);
 
     useEffect(() => {
-        // Seed defaults
-        if (WALLET_ADDRESS && !walletAddress) setWalletAddress(WALLET_ADDRESS);
-        if (WALLET_ID && !walletId) setWalletId(WALLET_ID);
-        // Attempt WC session restore
+        // Only restore from WalletConnect session - don't seed from env vars
         const restore = async () => {
             try {
                 const w = WalletUtilService.getInstance().HathorWalletUtils;
@@ -26,12 +21,27 @@ const Nav = () => {
             }
         };
         restore();
-    }, [walletAddress, walletId, setWalletAddress, setWalletId]);
+    }, [setWalletAddress]);
 
     const hasWallet = Boolean(walletAddress);
     const formatWalletAddress = (address) => {
         if (!address || address === 'Not connected') return 'Not connected';
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    };
+
+    const connect = async () => {
+        setIsConnecting(true);
+        try {
+            const w = WalletUtilService.getInstance().HathorWalletUtils;
+            await w.init(process.env.NEXT_PUBLIC_HATHOR_RPC || 'https://wallet-service.hathor.network');
+            const session = await w.connect();
+            const addr = w.getActiveAddress?.();
+            if (addr) setWalletAddress(addr);
+        } catch (e) {
+            console.error('Failed to connect wallet:', e);
+        } finally {
+            setIsConnecting(false);
+        }
     };
 
     const disconnect = async () => {
@@ -63,19 +73,27 @@ const Nav = () => {
                                     <div className={`status-dot ${hasWallet ? 'connected' : 'disconnected'}`}></div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span className="pill" title="Nano contract id in use">
-                                        {CONTRACT_NAME.slice(0, 10)}…
-                                    </span>
-                                    <span className="pill">
-                                        {walletAddress ? formatWalletAddress(walletAddress) : 'No address'}
-                                    </span>
-                                    {hasWallet && (
+                                    {hasWallet ? (
+                                        <>
+                                            <span className="pill">
+                                                {formatWalletAddress(walletAddress)}
+                                            </span>
+                                            <button
+                                                className="btn btn-secondary"
+                                                onClick={disconnect}
+                                                style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
+                                            >
+                                                Disconnect
+                                            </button>
+                                        </>
+                                    ) : (
                                         <button
-                                            className="btn btn-secondary"
-                                            onClick={disconnect}
+                                            className="btn btn-primary"
+                                            onClick={connect}
+                                            disabled={isConnecting}
                                             style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
                                         >
-                                            Disconnect
+                                            {isConnecting ? 'Connecting...' : 'Connect Wallet'}
                                         </button>
                                     )}
                                 </div>
