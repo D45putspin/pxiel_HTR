@@ -1,0 +1,33 @@
+{
+  "name": "pXiel",
+  "version": "1.0.0",
+  "description": "Collaborative pixel art canvas on Hathor blockchain",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4545",
+    "build": "next build",
+    "start": "next start -p 4545",
+    "lint": "next lint",
+    "cors-proxy": "node cors-proxy.js"
+  },
+  "dependencies": {
+    "@apollo/client": "^3.13.9",
+    "@walletconnect/modal": "^2.6.2",
+    "@walletconnect/sign-client": "^2.16.1",
+    "bulma": "^1.0.1",
+    "bulma-toast": "^2.4.4",
+    "graphql": "^16.11.0",
+    "next": "14.2.4",
+    "react": "^18",
+    "react-dom": "^18",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.4",
+    "typescript": "^5"
+  }
+}
