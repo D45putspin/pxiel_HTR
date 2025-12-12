@@ -319,7 +319,7 @@ const HathorWalletUtils = {
     if (depositAmount !== undefined && depositAmount !== null) {
       const asNumber = Number(depositAmount);
       if (!Number.isNaN(asNumber) && asNumber > 0) {
-        deposits[depositToken] = asNumber;
+        deposits[depositToken] = asNumber.toString();
       }
     }
 
@@ -333,6 +333,14 @@ const HathorWalletUtils = {
     // Get address from session account (format: "hathor:privatenet:ADDRESS")
     const sessionAccount = namespace?.accounts?.[0] || '';
     const addressFromSession = sessionAccount.split(':')[2] || this.cachedAddress || '';
+
+    const deposits = {};
+    if (depositAmount !== undefined && depositAmount !== null) {
+      const asNumber = Number(depositAmount);
+      if (!Number.isNaN(asNumber) && asNumber > 0) {
+        deposits[depositToken] = asNumber.toString();
+      }
+    }
 
     const params = {
       network: networkName,

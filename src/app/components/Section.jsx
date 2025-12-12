@@ -18,34 +18,6 @@ import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
 const DEFAULT_PIXEL_SIZE = 10;
 const DEFAULT_CANVAS_SIZE = Number(process.env.NEXT_PUBLIC_CANVAS_SIZE || DEFAULT_SIZE || 32);
 
-const getErrorMessage = (error) => {
-    if (!error) return 'An unknown error occurred.';
-    if (typeof error === 'string') return error;
-
-    // Standard Error object, preferring original error message if available
-    if (error.message) {
-        const originalMsg = error.originalError?.message || error.originalError?.reason;
-        if (originalMsg && typeof originalMsg === 'string' && originalMsg.length > 5) {
-            return originalMsg;
-        }
-        return error.message;
-    }
-
-    // For WalletConnect or other complex objects
-    if (typeof error === 'object') {
-        if (error.reason) return error.reason;
-        if (error.error?.message) return error.error.message;
-        try {
-            const json = JSON.stringify(error, Object.getOwnPropertyNames(error));
-            if (json !== '{}' && json !== '[]') {
-                return `Transaction failed with details: ${json}`;
-            }
-        } catch { /* ignore serialization errors */ }
-    }
-
-    return 'An unknown transaction error occurred. Please check the console for details.';
-};
-
 export default function Section() {
     const canvasRef = useRef(null);
     const storeWalletId = useStore(state => state.walletId);
@@ -821,7 +793,27 @@ export default function Section() {
 
         } catch (e) {
             console.error('Transaction error raw:', e);
-            const errorMessage = getErrorMessage(e);
+            let errorMessage = 'Transaction error.';
+
+            if (e && typeof e === 'object') {
+                // Try to find a message in common places
+                errorMessage = e.message || e.reason || e.description || (e.error && e.error.message) || errorMessage;
+
+                // If the object looks empty but might have internal state (like some rpc errors)
+                if (Object.keys(e).length === 0 && !e.message) {
+                    console.warn('Empty error object detected. Checking prototype or hidden fields...');
+                    // Sometimes JSON.stringify(e) is empty for Errors, but Object.getOwnPropertyNames helps
+                    const detailed = JSON.stringify(e, Object.getOwnPropertyNames(e));
+                    if (detailed !== '{}') {
+                        errorMessage = `Error details: ${detailed}`;
+                    } else {
+                        errorMessage = `Unknown error (empty object). Type: ${e.constructor.name}`;
+                    }
+                }
+            } else if (typeof e === 'string') {
+                errorMessage = e;
+            }
+
             console.error('Final Error Message for UI:', errorMessage);
             setTxStatus(errorMessage);
         }
