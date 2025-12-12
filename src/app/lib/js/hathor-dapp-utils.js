@@ -314,16 +314,12 @@ const HathorWalletUtils = {
     // Extract network name from chainId (e.g., "hathor:privatenet" -> "privatenet")
     let chainToUse = resolveChainFromSession(session, this.chainId);
 
-    // Build actions array - exactly like hathordice-dapp
-    const actions = [];
+    // Build deposits object - an object where keys are token UIDs and values are amounts
+    const deposits = {};
     if (depositAmount !== undefined && depositAmount !== null) {
       const asNumber = Number(depositAmount);
       if (!Number.isNaN(asNumber) && asNumber > 0) {
-        actions.push({
-          type: 'deposit',
-          token: depositToken,
-          amount: asNumber.toString(),  // hathordice sends as string
-        });
+        deposits[depositToken] = asNumber;
       }
     }
 
@@ -344,7 +340,7 @@ const HathorWalletUtils = {
       method,
       address: addressFromSession,  // Adding address like HTTP API
       args,
-      actions,
+      deposits,
       push_tx: normalizedOpts.push_tx !== false,
     };
 
