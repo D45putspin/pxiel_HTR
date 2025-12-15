@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.9",
+    "@hathor/hathor-rpc-handler": "^3.4.2",
     "@walletconnect/modal": "^2.6.2",
     "@walletconnect/sign-client": "^2.16.1",
     "bulma": "^1.0.1",

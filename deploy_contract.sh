@@ -8,6 +8,49 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+WALLET_API=${WALLET_API:-http://localhost:8000}
+WALLET_ID=${WALLET_ID:-alice}
+WALLET_SEED=${WALLET_SEED:-"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"}
+MAX_WALLET_RETRIES=${MAX_WALLET_RETRIES:-30}
+
+start_wallet() {
+  echo "🚀 Iniciando wallet ${WALLET_ID}..."
+  curl -s -X POST "$WALLET_API/start" \
+    -H "Content-Type: application/json" \
+    -d "{\"wallet-id\": \"$WALLET_ID\", \"seed\": $(
+      jq -Rs . <<< "$WALLET_SEED"
+    )}" >/dev/null || true
+}
+
+wait_for_wallet_ready() {
+  echo "⏳ Aguardando wallet ficar pronta..."
+  for i in $(seq 1 "$MAX_WALLET_RETRIES"); do
+    local status=$(curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status")
+    local code=$(echo "$status" | jq -r '.statusCode')
+    if [ "$code" = "3" ]; then
+      echo -e "${GREEN}✅ Wallet está pronta${NC}"
+      return 0
+    fi
+    sleep 2
+  done
+  echo -e "${RED}❌ Wallet não ficou pronta dentro do tempo esperado${NC}"
+  curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status" | jq
+  exit 1
+}
+
+fetch_wallet_address() {
+  echo "📮 Obtendo endereço controlado pela wallet..."
+  local address_resp
+  address_resp=$(curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/address")
+  WALLET_ADDRESS=$(echo "$address_resp" | jq -r '.address // .addresses[0] // empty')
+  if [ -z "$WALLET_ADDRESS" ]; then
+    echo -e "${RED}❌ Não foi possível obter um endereço para a wallet${NC}"
+    echo "$address_resp" | jq
+    exit 1
+  fi
+  echo -e "${GREEN}✅ Usando endereço: $WALLET_ADDRESS${NC}"
+}
+
 echo "🔍 Verificando pré-requisitos..."
 
 # Check if miner is running
@@ -19,17 +62,10 @@ fi
 
 echo -e "${GREEN}✅ Minerador está rodando${NC}"
 
-# Check wallet
-WALLET_STATUS=$(curl -s -H "X-Wallet-Id: alice" http://localhost:8000/wallet/status)
-WALLET_READY=$(echo "$WALLET_STATUS" | jq -r '.statusCode')
+start_wallet
+wait_for_wallet_ready
+fetch_wallet_address
 
-if [ "$WALLET_READY" != "3" ]; then
-  echo -e "${RED}❌ Wallet não está pronta${NC}"
-  echo "$WALLET_STATUS" | jq
-  exit 1
-fi
-
-echo -e "${GREEN}✅ Wallet está pronta${NC}"
 echo ""
 
 echo "📦 Preparando código do blueprint..."
@@ -41,10 +77,10 @@ echo "📤 Registrando blueprint na blockchain..."
 
 # Cria a transação de on-chain blueprint
 BLUEPRINT_RESP=$(curl -s -X POST \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   -H "Content-Type: application/json" \
-  -d "{\"code\": $(jq -Rs . <<< "$BLUEPRINT_CODE"), \"address\": \"WiGFcSYHhfRqWJ7PXYvhjULXtXCYD1VFdS\"}" \
-  http://localhost:8000/wallet/nano-contracts/create-on-chain-blueprint)
+  -d "{\"code\": $(jq -Rs . <<< "$BLUEPRINT_CODE"), \"address\": \"$WALLET_ADDRESS\"}" \
+  "$WALLET_API/wallet/nano-contracts/create-on-chain-blueprint")
 
 echo "Debug - Blueprint Response:"
 echo "$BLUEPRINT_RESP" | jq
@@ -63,7 +99,7 @@ echo "⏳ Aguardando mineração do blueprint em um bloco..."
 
 # Aguarda até que o blueprint seja minerado
 for i in $(seq 1 60); do
-  FIRST_BLOCK=$(curl -s "http://localhost:8000/wallet/transaction?id=$BLUEPRINT_ID" -H "X-Wallet-Id: alice" | jq -r '.first_block')
+  FIRST_BLOCK=$(curl -s "$WALLET_API/wallet/transaction?id=$BLUEPRINT_ID" -H "X-Wallet-Id: $WALLET_ID" | jq -r '.first_block')
   if [ "$FIRST_BLOCK" != "null" ] && [ -n "$FIRST_BLOCK" ]; then
     echo -e "${GREEN}✅ Blueprint minerado no bloco: $FIRST_BLOCK${NC}"
     break
@@ -87,7 +123,7 @@ echo "🏗️ Criando nano contract..."
 # Cria o contrato com os parâmetros corretos: size=10, fee_htr=10
 CREATE_CONTRACT_PAYLOAD=$(jq -n \
   --arg blueprint_id "$BLUEPRINT_ID" \
-  --arg address "WiGFcSYHhfRqWJ7PXYvhjULXtXCYD1VFdS" \
+  --arg address "$WALLET_ADDRESS" \
   '{
     blueprint_id: $blueprint_id,
     address: $address,
@@ -101,10 +137,10 @@ echo "Debug - Create Contract Payload:"
 echo "$CREATE_CONTRACT_PAYLOAD" | jq
 
 RESP=$(echo "$CREATE_CONTRACT_PAYLOAD" | curl -s -X POST \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   -H "Content-Type: application/json" \
   -d @- \
-  http://localhost:8000/wallet/nano-contracts/create)
+  "$WALLET_API/wallet/nano-contracts/create")
 
 echo "Debug - Create Contract Response:"
 echo "$RESP" | jq
@@ -123,7 +159,7 @@ echo ""
 echo "⏳ Aguardando mineração do contrato..."
 
 for i in $(seq 1 60); do
-  CONTRACT_TX=$(curl -s "http://localhost:8000/wallet/transaction?id=$CONTRACT_ID" -H "X-Wallet-Id: alice")
+  CONTRACT_TX=$(curl -s "$WALLET_API/wallet/transaction?id=$CONTRACT_ID" -H "X-Wallet-Id: $WALLET_ID")
   CONTRACT_BLOCK=$(echo "$CONTRACT_TX" | jq -r '.first_block')
   
   if [ "$CONTRACT_BLOCK" != "null" ] && [ -n "$CONTRACT_BLOCK" ]; then
@@ -145,13 +181,13 @@ sleep 5  # Aguarda sincronização
 
 echo "🔍 Verificando estado inicial do contrato..."
 INITIAL_STATE=$(curl -s -G \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   --data-urlencode "id=$CONTRACT_ID" \
   --data-urlencode "fields[]=paint_count" \
   --data-urlencode "fields[]=fees_collected" \
   --data-urlencode "fields[]=size" \
   --data-urlencode "fields[]=fee_htr" \
-  "http://localhost:8000/wallet/nano-contracts/state")
+  "$WALLET_API/wallet/nano-contracts/state")
 
 echo "Estado inicial:"
 echo "$INITIAL_STATE" | jq
@@ -162,7 +198,7 @@ echo "🎨 Pintando pixel (x=0, y=0, cor=#FF0000)..."
 # Tenta pintar com fee exata de 10
 PAINT_PAYLOAD=$(jq -n \
   --arg nc_id "$CONTRACT_ID" \
-  --arg address "WiGFcSYHhfRqWJ7PXYvhjULXtXCYD1VFdS" \
+  --arg address "$WALLET_ADDRESS" \
   '{
     nc_id: $nc_id,
     method: "paint",
@@ -181,10 +217,10 @@ echo "Debug - Paint Payload:"
 echo "$PAINT_PAYLOAD" | jq
 
 PAINT_RESP=$(echo "$PAINT_PAYLOAD" | curl -s -X POST \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   -H "Content-Type: application/json" \
   -d @- \
-  http://localhost:8000/wallet/nano-contracts/execute)
+  "$WALLET_API/wallet/nano-contracts/execute")
 
 echo "Debug - Paint Response:"
 echo "$PAINT_RESP" | jq
@@ -207,7 +243,7 @@ echo "⏳ Aguardando mineração da execução..."
 
 # Increased timeout and more detailed checking
 for i in $(seq 1 80); do
-  PAINT_TX_INFO=$(curl -s "http://localhost:8000/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: alice")
+  PAINT_TX_INFO=$(curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID")
   PAINT_BLOCK=$(echo "$PAINT_TX_INFO" | jq -r '.first_block')
   
   # Check if transaction is voided or has errors
@@ -242,10 +278,10 @@ if [ "$PAINT_BLOCK" = "null" ] || [ -z "$PAINT_BLOCK" ]; then
   echo -e "${RED}❌ Timeout: execução não foi minerada após 4 minutos${NC}"
   echo ""
   echo "Última informação da transação:"
-  curl -s "http://localhost:8000/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: alice" | jq
+  curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID" | jq
   echo ""
   echo "Verificando se há mempool:"
-  curl -s "http://localhost:8000/wallet/transactions" -H "X-Wallet-Id: alice" | jq '.transactions[] | select(.tx_id == "'$PAINT_TX'")'
+  curl -s "$WALLET_API/wallet/transactions" -H "X-Wallet-Id: $WALLET_ID" | jq '.transactions[] | select(.tx_id == "'$PAINT_TX'")'
   exit 1
 fi
 
@@ -255,14 +291,14 @@ sleep 3
 echo "👀 Consultando estado final do contrato..."
 
 FINAL_STATE=$(curl -s -G \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   --data-urlencode "id=$CONTRACT_ID" \
   --data-urlencode "fields[]=pixels" \
   --data-urlencode "fields[]=last_painted_by" \
   --data-urlencode "fields[]=last_painted_at" \
   --data-urlencode "fields[]=paint_count" \
   --data-urlencode "fields[]=fees_collected" \
-  "http://localhost:8000/wallet/nano-contracts/state")
+  "$WALLET_API/wallet/nano-contracts/state")
 
 echo "$FINAL_STATE" | jq
 
@@ -291,14 +327,14 @@ echo "🧪 Testando método de visualização get_pixel_info..."
 
 # Using separate args for call-view-method
 PIXEL_INFO=$(curl -s -X POST \
-  -H "X-Wallet-Id: alice" \
+  -H "X-Wallet-Id: $WALLET_ID" \
   -H "Content-Type: application/json" \
   -d "{
     \"nc_id\": \"$CONTRACT_ID\",
     \"method\": \"get_pixel_info\",
     \"args\": [0, 0]
   }" \
-  http://localhost:8000/wallet/nano-contracts/call-view-method)
+  "$WALLET_API/wallet/nano-contracts/call-view-method")
 
 echo "Informação do pixel (0,0):"
 echo "$PIXEL_INFO" | jq

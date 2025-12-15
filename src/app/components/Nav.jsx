@@ -1,27 +1,23 @@
 'use client'
 import React, { useEffect, useState } from 'react';
 import useStore from '@/app/lib/store';
-import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
+import { useWalletConnectClient } from '@/app/lib/walletconnect/ClientContext';
+import { useJsonRpc } from '@/app/lib/walletconnect/JsonRpcContext';
+import { getAccountFromSession } from '@/app/lib/walletconnect/utils';
 
 const Nav = () => {
     const walletAddress = useStore(state => state.walletAddress);
     const setWalletAddress = useStore(state => state.setWalletAddress);
     const [isConnecting, setIsConnecting] = useState(false);
+    const { session, connect: establishSession, disconnect: disconnectWallet, isWaitingApproval } = useWalletConnectClient();
+    const { hathorRpc } = useJsonRpc();
 
     useEffect(() => {
-        // Only restore from WalletConnect session - don't seed from env vars
-        const restore = async () => {
-            try {
-                const w = WalletUtilService.getInstance().HathorWalletUtils;
-                await w.init(process.env.NEXT_PUBLIC_HATHOR_RPC || 'https://wallet-service.hathor.network');
-                const addr = w.getActiveAddress?.();
-                if (addr) setWalletAddress(addr);
-            } catch {
-                // ignore
-            }
-        };
-        restore();
-    }, [setWalletAddress]);
+        const parsed = getAccountFromSession(session);
+        if (parsed?.address) {
+            setWalletAddress(parsed.address);
+        }
+    }, [session, setWalletAddress]);
 
     const hasWallet = Boolean(walletAddress);
     const formatWalletAddress = (address) => {
@@ -29,14 +25,16 @@ const Nav = () => {
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
     };
 
-    const connect = async () => {
+    const connectWallet = async () => {
         setIsConnecting(true);
         try {
-            const w = WalletUtilService.getInstance().HathorWalletUtils;
-            await w.init(process.env.NEXT_PUBLIC_HATHOR_RPC || 'https://wallet-service.hathor.network');
-            const session = await w.connect();
-            const addr = w.getActiveAddress?.();
-            if (addr) setWalletAddress(addr);
+            const newSession = await establishSession();
+            const parsed = getAccountFromSession(newSession || session);
+            let address = parsed?.address || null;
+            if (!address) {
+                address = await hathorRpc.requestAddress();
+            }
+            if (address) setWalletAddress(address);
         } catch (e) {
             console.error('Failed to connect wallet:', e);
         } finally {
@@ -46,8 +44,10 @@ const Nav = () => {
 
     const disconnect = async () => {
         try {
-            await WalletUtilService.getInstance().HathorWalletUtils.disconnect?.();
-        } catch { }
+            await disconnectWallet();
+        } catch (e) {
+            console.error('Wallet disconnect failed', e);
+        }
         setWalletAddress(null);
     };
 
@@ -89,11 +89,11 @@ const Nav = () => {
                                     ) : (
                                         <button
                                             className="btn btn-primary"
-                                            onClick={connect}
-                                            disabled={isConnecting}
+                                            onClick={connectWallet}
+                                            disabled={isConnecting || isWaitingApproval}
                                             style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
                                         >
-                                            {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+                                            {(isConnecting || isWaitingApproval) ? 'Connecting...' : 'Connect Wallet'}
                                         </button>
                                     )}
                                 </div>

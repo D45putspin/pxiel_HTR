@@ -7,13 +7,16 @@ import {
     DEPOSIT_AMOUNT,
     DEPOSIT_TOKEN,
     PIXEL_PRICE_WEI,
-    WALLET_ADDRESS,
     WALLET_API_BASE,
     WALLET_ID,
 } from '@/app/lib/addresses';
 import { usePixelLoadingAnimation } from './PixelLoadingAnimation';
 import useStore from '@/app/lib/store';
-import WalletUtilService from '@/app/lib/wallet-util-service.mjs';
+import { sendNanoContractTxRpcRequest } from '@hathor/hathor-rpc-handler';
+import { useWalletConnectClient } from '@/app/lib/walletconnect/ClientContext';
+import { useJsonRpc } from '@/app/lib/walletconnect/JsonRpcContext';
+import { getAccountFromSession } from '@/app/lib/walletconnect/utils';
+import { startHathorPaintMonitor } from '@/app/lib/js/hathor-ws-monitor';
 
 const DEFAULT_PIXEL_SIZE = 10;
 const DEFAULT_CANVAS_SIZE = Number(process.env.NEXT_PUBLIC_CANVAS_SIZE || DEFAULT_SIZE || 32);
@@ -31,6 +34,7 @@ export default function Section() {
     const [loadingProgress, setLoadingProgress] = useState(0);
     const { loadingPixels, setLoadingPixels, generateLoadingPixels, drawLoadingAnimation } = usePixelLoadingAnimation();
     const [txStatus, setTxStatus] = useState('');
+    const [realtimeStatus, setRealtimeStatus] = useState('');
     const [canvasSize, setCanvasSize] = useState(DEFAULT_CANVAS_SIZE);
     const [paintCount, setPaintCount] = useState(0);
     const [feeAmount, setFeeAmount] = useState(Number(DEPOSIT_AMOUNT || PIXEL_PRICE_WEI || 0));
@@ -45,10 +49,37 @@ export default function Section() {
     const [hasDragged, setHasDragged] = useState(false);
     const walletApiBase = useMemo(() => (WALLET_API_BASE || '').replace(/\/$/, ''), []);
     const walletId = storeWalletId || WALLET_ID || 'alice';
-    const senderAddress = storeWalletAddress || WALLET_ADDRESS;
     const depositToken = DEPOSIT_TOKEN || '00';
     const depositAmount = Number(DEPOSIT_AMOUNT || PIXEL_PRICE_WEI || 100);
     const contractId = CONTRACT_NAME;
+    const blueprintId = process.env.NEXT_PUBLIC_BLUEPRINT_ID || null;
+    const { session, connect: establishSession } = useWalletConnectClient();
+    const { hathorRpc } = useJsonRpc();
+    useEffect(() => {
+        const parsed = getAccountFromSession(session);
+        if (parsed?.address) {
+            setStoreWalletAddress(parsed.address);
+        }
+    }, [session, setStoreWalletAddress]);
+
+    useEffect(() => {
+        if (!contractId) return undefined;
+        const stop = startHathorPaintMonitor({
+            contractName: contractId,
+            onPaint: ({ x, y, color }) => {
+                if (!Number.isFinite(x) || !Number.isFinite(y) || typeof color !== 'string') return;
+                setPixels(prev => {
+                    const next = new Map(prev);
+                    next.set(`${x}:${y}`, color);
+                    return next;
+                });
+            },
+            onStatus: (msg) => setRealtimeStatus(msg || ''),
+        });
+        return () => {
+            if (typeof stop === 'function') stop();
+        };
+    }, [contractId]);
 
     const pixelSize = DEFAULT_PIXEL_SIZE * zoom;
 
@@ -65,7 +96,7 @@ export default function Section() {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, width, height);
 
-        // Soft vignette/glow to match pink/white palette
+
         const g1 = ctx.createRadialGradient(width * 0.7, -200, 0, width * 0.7, -200, Math.max(width, height));
         g1.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
         g1.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -78,7 +109,6 @@ export default function Section() {
         ctx.fillStyle = g2;
         ctx.fillRect(0, 0, width, height);
 
-        // Draw grid background with subtle lines (white/pink theme)
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.lineWidth = 1;
 
@@ -666,10 +696,22 @@ export default function Section() {
 
     const ensureConnected = useCallback(async () => {
         try {
-            const w = WalletUtilService.getInstance().HathorWalletUtils;
-            await w.init(process.env.NEXT_PUBLIC_HATHOR_RPC || 'https://wallet-service.hathor.network');
-            const info = await w.requestWalletInfo();
-            const address = info?.address || info?.wallet?.address || null;
+            let activeSession = session;
+            if (!activeSession) {
+                activeSession = await establishSession();
+            }
+            if (!activeSession) {
+                setTxStatus('WalletConnect: session not established.');
+                return false;
+            }
+            let address = storeWalletAddress || getAccountFromSession(activeSession)?.address || null;
+            if (!address) {
+                try {
+                    address = await hathorRpc.requestAddress();
+                } catch (requestErr) {
+                    console.error('Wallet address request failed', requestErr);
+                }
+            }
             if (address) {
                 setStoreWalletAddress(address);
                 setTxStatus('');
@@ -682,7 +724,7 @@ export default function Section() {
             setTxStatus('Wallet connection failed. Check WalletConnect setup.');
             return false;
         }
-    }, [setStoreWalletAddress]);
+    }, [session, establishSession, storeWalletAddress, setStoreWalletAddress, hathorRpc]);
 
     // Load canvas data on initial mount
     useEffect(() => {
@@ -748,8 +790,13 @@ export default function Section() {
     }, [selected, walletId, isMounted]);
 
     const handlePaint = useCallback(async (x, y) => {
-        // Ensure wallet is connected
-        if (!(await ensureConnected())) {
+        const isConnected = await ensureConnected();
+        if (!isConnected) {
+            return;
+        }
+
+        if (!blueprintId) {
+            setTxStatus('Blueprint ID is missing. Configure NEXT_PUBLIC_BLUEPRINT_ID.');
             return;
         }
 
@@ -758,29 +805,33 @@ export default function Section() {
 
         try {
             const amountToSend = Number.isFinite(feeAmount) && feeAmount > 0 ? feeAmount : depositAmount;
+            const address = storeWalletAddress || getAccountFromSession(session)?.address || null;
+            if (!address) {
+                setTxStatus('Wallet address unavailable.');
+                return;
+            }
 
-            // Log all paint parameters for debugging
-            console.log('[DEBUG] Paint parameters:', {
-                contractId,
-                method: 'paint',
-                args: [x, y, color],
-                depositToken,
-                depositAmount: amountToSend,
-                feeAmount,
-                rawDepositAmount: depositAmount,
-            });
+            const actions = [];
+            if (amountToSend && amountToSend > 0) {
+                actions.push({
+                    type: 'deposit',
+                    token: depositToken,
+                    amount: String(amountToSend),
+                    address,
+                    changeAddress: address,
+                });
+            }
 
-            // Use WalletConnect for transaction signing
-            const w = WalletUtilService.getInstance().HathorWalletUtils;
-            console.log('[DEBUG] WalletUtils chainId:', w.chainId);
-            console.log('[DEBUG] WalletUtils session:', w.session ? 'exists' : 'null');
-
-            const tx = await w.sendTransaction(
-                contractId,
+            const rpcRequest = sendNanoContractTxRpcRequest(
                 'paint',
+                blueprintId,
+                actions,
                 [x, y, color],
-                { depositToken, depositAmount: amountToSend }
+                true,
+                contractId || null,
             );
+
+            const tx = await hathorRpc.sendNanoContractTx(rpcRequest);
 
             if (tx && tx.errors && tx.errors.length) {
                 throw new Error(tx.errors.join(', '));
@@ -796,13 +847,10 @@ export default function Section() {
             let errorMessage = 'Transaction error.';
 
             if (e && typeof e === 'object') {
-                // Try to find a message in common places
                 errorMessage = e.message || e.reason || e.description || (e.error && e.error.message) || errorMessage;
 
-                // If the object looks empty but might have internal state (like some rpc errors)
                 if (Object.keys(e).length === 0 && !e.message) {
                     console.warn('Empty error object detected. Checking prototype or hidden fields...');
-                    // Sometimes JSON.stringify(e) is empty for Errors, but Object.getOwnPropertyNames helps
                     const detailed = JSON.stringify(e, Object.getOwnPropertyNames(e));
                     if (detailed !== '{}') {
                         errorMessage = `Error details: ${detailed}`;
@@ -817,7 +865,7 @@ export default function Section() {
             console.error('Final Error Message for UI:', errorMessage);
             setTxStatus(errorMessage);
         }
-    }, [ensureConnected, contractId, depositAmount, depositToken, selected, waitForTransactionConfirmation, feeAmount]);
+    }, [ensureConnected, contractId, depositAmount, depositToken, selected, waitForTransactionConfirmation, feeAmount, blueprintId, hathorRpc, storeWalletAddress, session]);
 
     return (
         <section className="section fullscreen">
@@ -889,6 +937,12 @@ export default function Section() {
                     {hoveredPixel && (
                         <div className="control-group">
                             <span className="pill">Pixel: ({hoveredPixel.x}, {hoveredPixel.y})</span>
+                        </div>
+                    )}
+
+                    {realtimeStatus && (
+                        <div className="control-group">
+                            <div className="status-mini">{realtimeStatus}</div>
                         </div>
                     )}
 
