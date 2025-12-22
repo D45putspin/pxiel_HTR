@@ -9,7 +9,7 @@ import { WalletConnectModal } from '@walletconnect/modal';
 import { DEFAULT_CHAIN, normalizeChainId } from './utils';
 
 const REQUIRED_METHODS = ['htr_signWithAddress', 'htr_sendNanoContractTx'];
-const OPTIONAL_METHODS = ['htr_createToken', 'htr_getBalance', 'htr_sendTransaction'];
+const OPTIONAL_METHODS = ['htr_createToken', 'htr_sendTransaction'];
 
 const DEFAULT_METADATA = {
   name: 'pXiel Hathor',
