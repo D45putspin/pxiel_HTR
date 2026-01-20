@@ -4,7 +4,9 @@
   "description": "Collaborative pixel art canvas on Hathor blockchain",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 4545",
+    "dev": "node scripts/dev.js",
+    "dev:web": "next dev -p 4545",
+    "dev:feed": "node live-feed-server.js",
     "build": "next build",
     "start": "next start -p 4545",
     "lint": "next lint",
@@ -21,6 +23,7 @@
     "next": "14.2.4",
     "react": "^18",
     "react-dom": "^18",
+    "ws": "^8.17.0",
     "zustand": "^4.5.2"
   },
   "devDependencies": {

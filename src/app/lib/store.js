@@ -4,11 +4,11 @@ import { create } from 'zustand';
 
 const useStore = create((set, get) => ({
     // Wallet state with boolean connection status
-    walletAddress: process.env.NEXT_PUBLIC_WALLET_ADDRESS || null,
+    walletAddress: null,
     isConnected: false,
     setWalletAddress: (addr) => set({ 
         walletAddress: addr, 
-        isConnected: !!addr && addr.length > 20 
+        isConnected: Boolean(addr)
     }),
     walletId: process.env.NEXT_PUBLIC_WALLET_ID || 'alice',
     setWalletId: (id) => set({ walletId: id }),

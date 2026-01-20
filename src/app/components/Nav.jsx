@@ -13,13 +13,18 @@ const Nav = () => {
     const { hathorRpc } = useJsonRpc();
 
     useEffect(() => {
+        if (!session) {
+            setWalletAddress(null);
+            return;
+        }
         const parsed = getAccountFromSession(session);
         if (parsed?.address) {
             setWalletAddress(parsed.address);
         }
     }, [session, setWalletAddress]);
 
-    const hasWallet = Boolean(walletAddress);
+    const isSessionConnected = Boolean(session);
+    const hasWalletAddress = Boolean(walletAddress);
     const formatWalletAddress = (address) => {
         if (!address || address === 'Not connected') return 'Not connected';
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -67,16 +72,16 @@ const Nav = () => {
                         <div className="nav-start">
                             {/* Future nav items can go here */}
                         </div>
-                        <div className="nav-end">
-                            <div className="wallet-status">
-                                <div className="wallet-indicator">
-                                    <div className={`status-dot ${hasWallet ? 'connected' : 'disconnected'}`}></div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    {hasWallet ? (
+                    <div className="nav-end">
+                        <div className="wallet-status">
+                            <div className="wallet-indicator">
+                                <div className={`status-dot ${isSessionConnected ? 'connected' : 'disconnected'}`}></div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    {isSessionConnected ? (
                                         <>
                                             <span className="pill">
-                                                {formatWalletAddress(walletAddress)}
+                                                {hasWalletAddress ? formatWalletAddress(walletAddress) : 'Connected'}
                                             </span>
                                             <button
                                                 className="btn btn-secondary"

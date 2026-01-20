@@ -40,7 +40,6 @@ NEXT_PUBLIC_WALLET_ID=alice
 NEXT_PUBLIC_WALLET_ADDRESS=WiGFcSYHhfRqWJ7PXYvhjULXtXCYD1VFdS
 # Nano contract + settings
 NEXT_PUBLIC_CANVAS_CONTRACT=000061c0684e5a5946771c1336d86372e54e2849c5179d28c6535bbe8a87f195
-NEXT_PUBLIC_NC_ID=000061c0684e5a5946771c1336d86372e54e2849c5179d28c6535bbe8a87f195
 NEXT_PUBLIC_CANVAS_SIZE=32
 NEXT_PUBLIC_PIXEL_PRICE_WEI=100              # defaults to deposit amount if unset
 NEXT_PUBLIC_DEPOSIT_TOKEN=00                 # HTR
@@ -108,7 +107,7 @@ If you're running the local `nano-env` stack, the UI talks directly to the headl
 
 ## 🔗 Smart Contract Expectations
 
-- Contract id from `NEXT_PUBLIC_CANVAS_CONTRACT` / `NEXT_PUBLIC_NC_ID` (default: `000061c0684e5a5946771c1336d86372e54e2849c5179d28c6535bbe8a87f195`)
+- Contract id from `NEXT_PUBLIC_CANVAS_CONTRACT` (default: `000061c0684e5a5946771c1336d86372e54e2849c5179d28c6535bbe8a87f195`)
 - Exposes a `paint` method accepting coordinates and color plus `get_pixel_info`/`get_stats` views
 - Enforces the configured deposit per pixel (defaults to 100 of token `00`)
 

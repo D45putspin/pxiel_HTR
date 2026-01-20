@@ -12,6 +12,30 @@ WALLET_API=${WALLET_API:-http://localhost:8000}
 WALLET_ID=${WALLET_ID:-alice}
 WALLET_SEED=${WALLET_SEED:-"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"}
 MAX_WALLET_RETRIES=${MAX_WALLET_RETRIES:-30}
+POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC:-3}
+BLUEPRINT_MINING_RETRIES=${BLUEPRINT_MINING_RETRIES:-120}
+CONTRACT_MINING_RETRIES=${CONTRACT_MINING_RETRIES:-120}
+
+print_json() {
+  local payload="$1"
+  if printf '%s\n' "$payload" | jq . >/dev/null 2>&1; then
+    printf '%s\n' "$payload" | jq
+  else
+    printf '%s\n' "$payload"
+  fi
+}
+
+json_field() {
+  local payload="$1"
+  local filter="$2"
+  local value
+  if ! value=$(printf '%s\n' "$payload" | jq -r "$filter" 2>/dev/null); then
+    echo -e "${RED}❌ Resposta inválida (não é JSON)${NC}"
+    printf '%s\n' "$payload"
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
 
 start_wallet() {
   echo "🚀 Iniciando wallet ${WALLET_ID}..."
@@ -26,7 +50,8 @@ wait_for_wallet_ready() {
   echo "⏳ Aguardando wallet ficar pronta..."
   for i in $(seq 1 "$MAX_WALLET_RETRIES"); do
     local status=$(curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status")
-    local code=$(echo "$status" | jq -r '.statusCode')
+    local code
+    code=$(json_field "$status" '.statusCode') || exit 1
     if [ "$code" = "3" ]; then
       echo -e "${GREEN}✅ Wallet está pronta${NC}"
       return 0
@@ -34,7 +59,7 @@ wait_for_wallet_ready() {
     sleep 2
   done
   echo -e "${RED}❌ Wallet não ficou pronta dentro do tempo esperado${NC}"
-  curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status" | jq
+  curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status" | jq 2>/dev/null || curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/status"
   exit 1
 }
 
@@ -42,10 +67,10 @@ fetch_wallet_address() {
   echo "📮 Obtendo endereço controlado pela wallet..."
   local address_resp
   address_resp=$(curl -s -H "X-Wallet-Id: $WALLET_ID" "$WALLET_API/wallet/address")
-  WALLET_ADDRESS=$(echo "$address_resp" | jq -r '.address // .addresses[0] // empty')
+  WALLET_ADDRESS=$(json_field "$address_resp" '.address // .addresses[0] // empty') || exit 1
   if [ -z "$WALLET_ADDRESS" ]; then
     echo -e "${RED}❌ Não foi possível obter um endereço para a wallet${NC}"
-    echo "$address_resp" | jq
+    print_json "$address_resp"
     exit 1
   fi
   echo -e "${GREEN}✅ Usando endereço: $WALLET_ADDRESS${NC}"
@@ -83,13 +108,13 @@ BLUEPRINT_RESP=$(curl -s -X POST \
   "$WALLET_API/wallet/nano-contracts/create-on-chain-blueprint")
 
 echo "Debug - Blueprint Response:"
-echo "$BLUEPRINT_RESP" | jq
+print_json "$BLUEPRINT_RESP"
 
-BLUEPRINT_ID=$(echo "$BLUEPRINT_RESP" | jq -r '.hash')
+BLUEPRINT_ID=$(json_field "$BLUEPRINT_RESP" '.hash') || exit 1
 
 if [ -z "$BLUEPRINT_ID" ] || [ "$BLUEPRINT_ID" = "null" ]; then
   echo -e "${RED}❌ Erro ao registrar blueprint${NC}"
-  echo "$BLUEPRINT_RESP" | jq
+  print_json "$BLUEPRINT_RESP"
   exit 1
 fi
 
@@ -98,19 +123,36 @@ echo ""
 echo "⏳ Aguardando mineração do blueprint em um bloco..."
 
 # Aguarda até que o blueprint seja minerado
-for i in $(seq 1 60); do
-  FIRST_BLOCK=$(curl -s "$WALLET_API/wallet/transaction?id=$BLUEPRINT_ID" -H "X-Wallet-Id: $WALLET_ID" | jq -r '.first_block')
+for i in $(seq 1 "$BLUEPRINT_MINING_RETRIES"); do
+  BLUEPRINT_TX_INFO=$(curl -s "$WALLET_API/wallet/transaction?id=$BLUEPRINT_ID" -H "X-Wallet-Id: $WALLET_ID")
+  FIRST_BLOCK=$(json_field "$BLUEPRINT_TX_INFO" '.first_block') || exit 1
+  IS_VOIDED=$(json_field "$BLUEPRINT_TX_INFO" '.is_voided // false') || exit 1
+
+  if [ "$IS_VOIDED" = "true" ]; then
+    echo ""
+    echo -e "${RED}❌ Blueprint foi invalidado (voided)${NC}"
+    echo "Detalhes da transação:"
+    print_json "$BLUEPRINT_TX_INFO"
+    exit 1
+  fi
   if [ "$FIRST_BLOCK" != "null" ] && [ -n "$FIRST_BLOCK" ]; then
     echo -e "${GREEN}✅ Blueprint minerado no bloco: $FIRST_BLOCK${NC}"
     break
   fi
+
+  if [ $((i % 10)) -eq 0 ]; then
+    echo ""
+    echo "Status da transação (tentativa $i):"
+    printf '%s\n' "$BLUEPRINT_TX_INFO" | jq -c '{height, first_block, is_voided}' 2>/dev/null || printf '%s\n' "$BLUEPRINT_TX_INFO"
+  fi
   printf "."
-  sleep 3
+  sleep "$POLL_INTERVAL_SEC"
 done
 
 if [ "$FIRST_BLOCK" = "null" ] || [ -z "$FIRST_BLOCK" ]; then
   echo ""
-  echo -e "${RED}❌ Timeout: blueprint não foi minerado após 3 minutos${NC}"
+  BLUEPRINT_TIMEOUT=$((BLUEPRINT_MINING_RETRIES * POLL_INTERVAL_SEC))
+  echo -e "${RED}❌ Timeout: blueprint não foi minerado após ${BLUEPRINT_TIMEOUT}s${NC}"
   exit 1
 fi
 
@@ -129,12 +171,12 @@ CREATE_CONTRACT_PAYLOAD=$(jq -n \
     address: $address,
     data: {
       actions: [],
-      args: [10, 10]
+      args: [500, 10]
     }
   }')
 
 echo "Debug - Create Contract Payload:"
-echo "$CREATE_CONTRACT_PAYLOAD" | jq
+print_json "$CREATE_CONTRACT_PAYLOAD"
 
 RESP=$(echo "$CREATE_CONTRACT_PAYLOAD" | curl -s -X POST \
   -H "X-Wallet-Id: $WALLET_ID" \
@@ -143,9 +185,9 @@ RESP=$(echo "$CREATE_CONTRACT_PAYLOAD" | curl -s -X POST \
   "$WALLET_API/wallet/nano-contracts/create")
 
 echo "Debug - Create Contract Response:"
-echo "$RESP" | jq
+print_json "$RESP"
 
-CONTRACT_ID=$(echo "$RESP" | jq -r '.hash')
+CONTRACT_ID=$(json_field "$RESP" '.hash') || exit 1
 
 if [ -z "$CONTRACT_ID" ] || [ "$CONTRACT_ID" = "null" ]; then
   echo -e "${RED}❌ Erro ao criar contrato${NC}"
@@ -158,21 +200,36 @@ echo -e "${GREEN}✅ Contrato criado: $CONTRACT_ID${NC}"
 echo ""
 echo "⏳ Aguardando mineração do contrato..."
 
-for i in $(seq 1 60); do
+for i in $(seq 1 "$CONTRACT_MINING_RETRIES"); do
   CONTRACT_TX=$(curl -s "$WALLET_API/wallet/transaction?id=$CONTRACT_ID" -H "X-Wallet-Id: $WALLET_ID")
-  CONTRACT_BLOCK=$(echo "$CONTRACT_TX" | jq -r '.first_block')
+  CONTRACT_BLOCK=$(json_field "$CONTRACT_TX" '.first_block') || exit 1
+  CONTRACT_VOIDED=$(json_field "$CONTRACT_TX" '.is_voided // false') || exit 1
+
+  if [ "$CONTRACT_VOIDED" = "true" ]; then
+    echo ""
+    echo -e "${RED}❌ Contrato foi invalidado (voided)${NC}"
+    echo "Detalhes da transação:"
+    print_json "$CONTRACT_TX"
+    exit 1
+  fi
   
   if [ "$CONTRACT_BLOCK" != "null" ] && [ -n "$CONTRACT_BLOCK" ]; then
     echo -e "${GREEN}✅ Contrato minerado no bloco: $CONTRACT_BLOCK${NC}"
     break
   fi
+  if [ $((i % 10)) -eq 0 ]; then
+    echo ""
+    echo "Status da transação (tentativa $i):"
+    printf '%s\n' "$CONTRACT_TX" | jq -c '{height, first_block, is_voided}' 2>/dev/null || printf '%s\n' "$CONTRACT_TX"
+  fi
   printf "."
-  sleep 3
+  sleep "$POLL_INTERVAL_SEC"
 done
 
 if [ "$CONTRACT_BLOCK" = "null" ] || [ -z "$CONTRACT_BLOCK" ]; then
   echo ""
-  echo -e "${RED}❌ Timeout: contrato não foi minerado após 3 minutos${NC}"
+  CONTRACT_TIMEOUT=$((CONTRACT_MINING_RETRIES * POLL_INTERVAL_SEC))
+  echo -e "${RED}❌ Timeout: contrato não foi minerado após ${CONTRACT_TIMEOUT}s${NC}"
   exit 1
 fi
 
@@ -190,7 +247,7 @@ INITIAL_STATE=$(curl -s -G \
   "$WALLET_API/wallet/nano-contracts/state")
 
 echo "Estado inicial:"
-echo "$INITIAL_STATE" | jq
+print_json "$INITIAL_STATE"
 
 echo ""
 echo "🎨 Pintando pixel (x=0, y=0, cor=#FF0000)..."
@@ -214,7 +271,7 @@ PAINT_PAYLOAD=$(jq -n \
   }')
 
 echo "Debug - Paint Payload:"
-echo "$PAINT_PAYLOAD" | jq
+print_json "$PAINT_PAYLOAD"
 
 PAINT_RESP=$(echo "$PAINT_PAYLOAD" | curl -s -X POST \
   -H "X-Wallet-Id: $WALLET_ID" \
@@ -223,16 +280,16 @@ PAINT_RESP=$(echo "$PAINT_PAYLOAD" | curl -s -X POST \
   "$WALLET_API/wallet/nano-contracts/execute")
 
 echo "Debug - Paint Response:"
-echo "$PAINT_RESP" | jq
+print_json "$PAINT_RESP"
 
-PAINT_TX=$(echo "$PAINT_RESP" | jq -r '.hash')
+PAINT_TX=$(json_field "$PAINT_RESP" '.hash') || exit 1
 
 if [ -z "$PAINT_TX" ] || [ "$PAINT_TX" = "null" ]; then
   echo -e "${RED}❌ Erro ao pintar pixel${NC}"
   echo "$PAINT_RESP"
   
   # Check for error details
-  ERROR=$(echo "$PAINT_RESP" | jq -r '.error // .message // "Unknown error"')
+  ERROR=$(json_field "$PAINT_RESP" '.error // .message // "Unknown error"') || exit 1
   echo -e "${RED}Erro: $ERROR${NC}"
   exit 1
 fi
@@ -244,16 +301,16 @@ echo "⏳ Aguardando mineração da execução..."
 # Increased timeout and more detailed checking
 for i in $(seq 1 80); do
   PAINT_TX_INFO=$(curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID")
-  PAINT_BLOCK=$(echo "$PAINT_TX_INFO" | jq -r '.first_block')
+  PAINT_BLOCK=$(json_field "$PAINT_TX_INFO" '.first_block') || exit 1
   
   # Check if transaction is voided or has errors
-  IS_VOIDED=$(echo "$PAINT_TX_INFO" | jq -r '.is_voided // false')
+  IS_VOIDED=$(json_field "$PAINT_TX_INFO" '.is_voided // false') || exit 1
   
   if [ "$IS_VOIDED" = "true" ]; then
     echo ""
     echo -e "${RED}❌ Transação foi invalidada (voided)${NC}"
     echo "Detalhes da transação:"
-    echo "$PAINT_TX_INFO" | jq
+    print_json "$PAINT_TX_INFO"
     exit 1
   fi
   
@@ -266,7 +323,7 @@ for i in $(seq 1 80); do
   if [ $((i % 10)) -eq 0 ]; then
     echo ""
     echo "Status da transação (tentativa $i):"
-    echo "$PAINT_TX_INFO" | jq -c '{height, first_block, is_voided}'
+    printf '%s\n' "$PAINT_TX_INFO" | jq -c '{height, first_block, is_voided}' 2>/dev/null || printf '%s\n' "$PAINT_TX_INFO"
   fi
   
   printf "."
@@ -278,10 +335,10 @@ if [ "$PAINT_BLOCK" = "null" ] || [ -z "$PAINT_BLOCK" ]; then
   echo -e "${RED}❌ Timeout: execução não foi minerada após 4 minutos${NC}"
   echo ""
   echo "Última informação da transação:"
-  curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID" | jq
+  curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID" | jq 2>/dev/null || curl -s "$WALLET_API/wallet/transaction?id=$PAINT_TX" -H "X-Wallet-Id: $WALLET_ID"
   echo ""
   echo "Verificando se há mempool:"
-  curl -s "$WALLET_API/wallet/transactions" -H "X-Wallet-Id: $WALLET_ID" | jq '.transactions[] | select(.tx_id == "'$PAINT_TX'")'
+  curl -s "$WALLET_API/wallet/transactions" -H "X-Wallet-Id: $WALLET_ID" | jq '.transactions[] | select(.tx_id == "'$PAINT_TX'")' 2>/dev/null || curl -s "$WALLET_API/wallet/transactions" -H "X-Wallet-Id: $WALLET_ID"
   exit 1
 fi
 
@@ -300,11 +357,11 @@ FINAL_STATE=$(curl -s -G \
   --data-urlencode "fields[]=fees_collected" \
   "$WALLET_API/wallet/nano-contracts/state")
 
-echo "$FINAL_STATE" | jq
+print_json "$FINAL_STATE"
 
 # Verify paint_count increased
-PAINT_COUNT=$(echo "$FINAL_STATE" | jq -r '.fields.paint_count // 0')
-FEES_COLLECTED=$(echo "$FINAL_STATE" | jq -r '.fields.fees_collected // 0')
+PAINT_COUNT=$(json_field "$FINAL_STATE" '.fields.paint_count // 0') || exit 1
+FEES_COLLECTED=$(json_field "$FINAL_STATE" '.fields.fees_collected // 0') || exit 1
 
 echo ""
 if [ "$PAINT_COUNT" -gt 0 ]; then
@@ -337,4 +394,4 @@ PIXEL_INFO=$(curl -s -X POST \
   "$WALLET_API/wallet/nano-contracts/call-view-method")
 
 echo "Informação do pixel (0,0):"
-echo "$PIXEL_INFO" | jq
+print_json "$PIXEL_INFO"

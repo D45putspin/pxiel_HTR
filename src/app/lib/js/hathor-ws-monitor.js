@@ -38,19 +38,99 @@ function extractTxData(messageObj) {
   }
 }
 
+function emitPaints({ data, statusFallback, contractName, onPaint }) {
+  if (!data || !onPaint) return;
+  const baseStatus = data.status || statusFallback || 'confirmed';
+  const baseContract = data.contract || null;
+  const baseSender = data.sender || null;
+  const baseTxHash = data.txHash || data.txId || null;
+  const paints = Array.isArray(data.paints) ? data.paints : [data];
+
+  paints.forEach((paint) => {
+    const x = Number(paint.x);
+    const y = Number(paint.y);
+    const color = String(paint.color || '').toLowerCase();
+    const contract = paint.contract || baseContract;
+    if (contractName && contract && contract !== contractName) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    onPaint({
+      x,
+      y,
+      color,
+      sender: paint.sender || baseSender,
+      txHash: paint.txHash || baseTxHash || null,
+      status: paint.status || baseStatus,
+      contract,
+    });
+  });
+}
+
+function startLiveFeedSse({ liveUrl, contractName, onPaint, onStatus }) {
+  let source = null;
+
+  const notify = (msg) => {
+    try { onStatus && onStatus(msg); } catch (_) {}
+    try { console.debug('[live-feed]', msg); } catch (_) {}
+  };
+
+  try {
+    source = new EventSource(liveUrl);
+  } catch (e) {
+    notify(`SSE create error: ${String(e)}`);
+    return () => {};
+  }
+
+  source.onopen = () => {
+    notify('Live feed connected');
+  };
+
+  source.onerror = () => {
+    notify('Live feed error; reconnecting...');
+  };
+
+  source.addEventListener('paint', (evt) => {
+    try {
+      const data = JSON.parse(evt.data || '{}');
+      emitPaints({ data, statusFallback: 'confirmed', contractName, onPaint });
+    } catch {}
+  });
+
+  source.addEventListener('pending', (evt) => {
+    try {
+      const data = JSON.parse(evt.data || '{}');
+      emitPaints({ data, statusFallback: 'pending', contractName, onPaint });
+    } catch {}
+  });
+
+  source.addEventListener('hello', () => {});
+  source.addEventListener('ping', () => {});
+
+  return () => {
+    try { source && source.close(); } catch {}
+  };
+}
+
 export function startHathorPaintMonitor({
   wsUrl = (process.env.NEXT_PUBLIC_HATHOR_WS_URL || ''),
+  liveUrl = (process.env.NEXT_PUBLIC_LIVE_FEED_URL || ''),
   contractName,
   onPaint,
   onContractTx,
   onStatus,
 }) {
   if (typeof window === 'undefined') return () => {};
+  if (liveUrl && typeof EventSource !== 'undefined') {
+    return startLiveFeedSse({ liveUrl, contractName, onPaint, onStatus });
+  }
   if (!wsUrl) {
     try { console.info('[hathor-ws] No websocket URL configured; realtime updates disabled.'); } catch (_) {}
     try { onStatus && onStatus('Realtime updates disabled (no Hathor WS URL)'); } catch (_) {}
     return () => {};
   }
+  const sanitizedWsUrl = (() => {
+    const hashIndex = wsUrl.indexOf('#');
+    return hashIndex >= 0 ? wsUrl.slice(0, hashIndex) : wsUrl;
+  })();
   let socket = null;
   let alive = true;
   let reconnectDelayMs = 1000;
@@ -71,7 +151,7 @@ export function startHathorPaintMonitor({
   function connect() {
     if (!alive) return;
     try {
-      socket = new WebSocket(wsUrl);
+      socket = new WebSocket(sanitizedWsUrl);
     } catch (e) {
       notify(`WS create error: ${String(e)}`);
       scheduleReconnect();
@@ -110,7 +190,41 @@ export function startHathorPaintMonitor({
           const y = Number(k.y);
           const color = String(k.color || '').toLowerCase();
           if (Number.isFinite(x) && Number.isFinite(y)) {
-            try { onPaint && onPaint({ x, y, color, sender: payload.sender, txHash: txHash || null }); } catch (_) {}
+            try {
+              onPaint && onPaint({
+                x,
+                y,
+                color,
+                sender: payload.sender,
+                txHash: txHash || null,
+                status: 'confirmed',
+                contract: payload.contract,
+              });
+            } catch (_) {}
+          }
+        }
+        if (f === 'paint_batch') {
+          const xs = Array.isArray(k.xs) ? k.xs : [];
+          const ys = Array.isArray(k.ys) ? k.ys : [];
+          const colors = Array.isArray(k.colors) ? k.colors : [];
+          const count = Math.min(xs.length, ys.length, colors.length);
+          for (let i = 0; i < count; i++) {
+            const x = Number(xs[i]);
+            const y = Number(ys[i]);
+            const color = String(colors[i] || '').toLowerCase();
+            if (Number.isFinite(x) && Number.isFinite(y)) {
+              try {
+                onPaint && onPaint({
+                  x,
+                  y,
+                  color,
+                  sender: payload.sender,
+                  txHash: txHash || null,
+                  status: 'confirmed',
+                  contract: payload.contract,
+                });
+              } catch (_) {}
+            }
           }
         }
         if (txHash) processed.add(txHash);
